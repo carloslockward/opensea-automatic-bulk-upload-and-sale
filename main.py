@@ -18,6 +18,7 @@ the digital world much smoother.
 
 # Colorama module: pip install colorama
 from pickle import FALSE
+import traceback
 from colorama import init, Fore, Style
 
 # Selenium module imports: pip install selenium
@@ -39,6 +40,7 @@ import os
 
 # New imports
 import urllib.parse
+from structure import NewStructure
 
 
 """Colorama module constants."""
@@ -190,7 +192,7 @@ class Structure:
             self.levels: list = nft_data[6]  # [[name, from, to], ...].
             self.stats: list = nft_data[7]  # [[name, from, to], ...].
             self.unlockable_content: list or bool = nft_data[8]  # [bool, str].
-            self.explicit_and_sensitive_content: bool = nft_data[9]
+            self.explicit_sensitive: bool = nft_data[9]
             self.supply: int = nft_data[10]
             self.blockchain: str = str(nft_data[11]).capitalize()
         if 2 in self.action:  # Sale part.
@@ -458,11 +460,28 @@ class OpenSea:
                 f"Couldnt find NFT named: {name} in collection: {collection}"
             )
 
-    def opensea_cancel_listing(self, name, collection) -> bool:
+    def go_to_url(self, url: str):
+        if url is not None:
+            if self.web.driver.current_url == url:
+                self.web.driver.refresh()
+            else:
+                self.web.driver.get(url)
+        else:
+            raise Exception(f"URL cannot be None")
 
+    def opensea_cancel_listing(self, structure: NewStructure) -> bool:
+
+        name = structure.nft_name
+        collection = structure.slug
         try:
+            try:
+                url = structure.nft_url
+            except:
+                url = self.get_nft_url_by_name(name, collection)
+                structure.nft_url = url
+
             # Lets go to the nft page
-            self.go_to_nft_page_by_name(name, collection)
+            self.go_to_url(url)
 
             # Wait for page to load.
             self.web.visible(f'//h1[contains(text(), "{name}")]')
@@ -509,12 +528,13 @@ class OpenSea:
         except Exception as e:
             return True, f"Problem: \n{e}\n"
 
-    def opensea_modify_listing(self, number: int) -> bool:
-        pass
+    def opensea_modify_listing(self, structure: int) -> bool:
+        self.opensea_cancel_listing(structure)
+        self.opensea_sale(structure.numerator, structure)
 
-    def opensea_upload(self, number: int) -> bool:
+    def opensea_upload(self, structure: NewStructure) -> bool:
         """Upload multiple NFTs automatically on OpenSea."""
-        print(f"Uploading NFT n°{number}/{reader.lenght_file}.", end=" ")
+        # print(f"Uploading NFT n°{number}/{len(structure)}.", end=" ")
         try:  # Go to the OpenSea create URL and input all datas of the NFT.
             self.web.driver.get(self.create_url + "?enable_supply=true")
             if isinstance(structure.file_path, list):
@@ -592,8 +612,7 @@ class OpenSea:
                         self.web.clickable('//div[@role="dialog"]/section/button')
                     number_ += 1  # Increase number to add more element.
                     self.web.send_keys(  # Input values in the inputs.
-                        f"/html/body/div[{index + 2}]/div/div/div/section/tabl"
-                        f"e/tbody/tr[{number_}]/td[1]/div/div/input",
+                        f"/html/body/div[{index + 2}]/div/div/div/section/table/tbody/tr[{number_}]/td[1]/div/div/input",
                         data[0],
                     )
                     for rank in [3, 2]:  # Input third and second values.
@@ -619,9 +638,9 @@ class OpenSea:
                                 structure.unlockable_content[1],
                             )
             # Click on the "Explicit & Sensitive Content" switch if it's true.
-            if structure.explicit_and_sensitive_content != "":  # Not empty.
-                if isinstance(structure.explicit_and_sensitive_content, bool):
-                    if structure.explicit_and_sensitive_content:  # True.
+            if structure.explicit_sensitive != "":  # Not empty.
+                if isinstance(structure.explicit_sensitive, bool):
+                    if structure.explicit_sensitive:  # True.
                         self.web.send_keys(
                             '//*[@id="explicit-content-toggle"]', Keys.ENTER
                         )  # Toggle button.
@@ -660,16 +679,24 @@ class OpenSea:
                 != self.create_url + "?enable_supply=true"
             )
             print(f"{green}NFT uploaded.{reset}")
-            if 2 not in structure.action:  # Save the data for future upload.
-                structure.save_nft(self.web.driver.current_url)
+            # if 2 not in structure.action:
+            try:
+                structure.nft_url
+            except:
+                structure.save_nft(
+                    self.web.driver.current_url
+                )  # Save the data for future management.
             return True  # If it perfectly worked.
         except Exception as error:  # An element is not reachable.
+            traceback.print_exc()
             print(f"{red}An error occured. {error}")
             return False  # If it failed.
 
-    def opensea_sale(self, number: int, date: str = "%d-%m-%Y %H:%M") -> None:
+    def opensea_sale(
+        self, structure: NewStructure, date: str = "%d-%m-%Y %H:%M"
+    ) -> None:
         """Set a price for the NFT and sell it."""
-        print(f"Sale of the NFT n°{number}/{len(structure.file)}.", end=" ")
+        # print(f"Sale of the NFT n°{number}/{len(structure)}.", end=" ")
         try:  # Try to sell the NFT with different types and methods.
             if 2 in structure.action and 1 not in structure.action:
                 self.web.driver.get(structure.nft_url + "/sell")  # NFT sale page.
@@ -958,25 +985,27 @@ if __name__ == "__main__":
     recov = read_file("recovery_phrase", "\nWhat is your MetaMask recovery phrase? ")
 
     action = perform_action()  # What the user wants to do.
-    reader = Reader(data_file())  # Ask for a file and read it.
-    structure = Structure(action)
+    # reader = Reader(data_file())  # Ask for a file and read it.
+    # structure2 = Structure(action)
+    structure = NewStructure(data_file(), action)
+    # breakpoint()
     web = Webdriver()  # Start a new webdriver and init its methods.
     # Init the OpenSea class and send the password and the recovery phrase.
     opensea = OpenSea(passw, recov, web)
     opensea.metamask_login()  # Connect to MetaMask.
     opensea.opensea_login()  # Connect to OpenSea.
 
-    for nft_number in range(reader.lenght_file):
+    for nft_number in range(len(structure)):
         structure.get_data(nft_number)  # Structure the data of the NFT.
         upload = None  # Prevent Undefined value error.
         if 1 in action:  # 1 = Upload. If user wants to upload the NFT.
-            upload = opensea.opensea_upload(nft_number + 1)  # Upload the NFT.
+            upload = opensea.opensea_upload(structure)  # Upload the NFT.
         if 2 in action:  # 2 - Sale. If user wants to sell the NFT.
             if 1 in action and not upload:  # Do not upload the NFT because of
                 continue  # a user choice or a failure of the upload.
             elif isinstance(structure.price, int) or isinstance(structure.price, float):
                 if structure.price > 0:  # If price has been defined.
-                    opensea.opensea_sale(nft_number + 1)  # Sell NFT.
+                    opensea.opensea_sale(structure)  # Sell NFT.
 
     web.driver.quit()  # Stop the webdriver.
     print(f"\n{green}All done! Your NFTs have been uploaded/sold.")
